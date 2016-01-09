@@ -1,0 +1,135 @@
+Sentiment Analysis: Part3
+========================================================
+author: Adena Lin
+date: December 18, 2015
+
+
+Intro
+========================================================
+
+Here we will determine the sentiments of professor reviews on <a href="www.ratemyprof.com">RateMyProf.com</a>.
+
+Text reviews will be analyzed on word-level, with the predicted sentiment being determined by the higher number of either positive or negative words. For reviews with an equal number of positive and negative words, they will be rated as "neutral".
+
+The predicted sentiment will be compared to the numeric ratings on RateMyProf (specifically the "Helpfulness" and "Clarity" ratings) and to coded ratings by people.
+
+Importing the lexicons
+========================================================
+One common word found in reviews was added to the positive and negative lexicons, respectively.
+```{r, eval=FALSE}
+# import +/- word lists
+
+positiveWords <- scan("lexicon/positive-words.txt", what = 'character')
+
+positiveWords[2007] <- c('funny')
+
+negativeWords <- scan("lexicon/negative-words.txt", what = 'character')
+
+negativeWords[4784] <- c('tough')
+```
+
+Webpage scraping
+========================================================
+
+```{r, eval=FALSE}
+# enter website url (find professor's rating page) to scrape
+uwaterloo <- read_html("http://www.ratemyprofessors.com/ ShowRatings.jsp?tid=1793811")
+
+webData <- uwaterloo %>%
+  html_nodes(".commentsParagraph") %>%
+  html_text() %>%
+  as.character()
+
+print(webData)
+# this should give a list of reviews from the first page of the website
+```
+
+Text processing
+========================================================
+```{r, eval=FALSE}
+# remove punctuation & line breaks
+reviews <- lapply(webData, gsub, pattern = '[[:punct:],\n,\r]', replacement = '')
+# change all words to lowercase
+reviews <- tolower(reviews)
+```
+Run reviews through word-matching function
+```{r, eval=FALSE}
+sentimentFunction <- function(sentences, positiveWords, negativeWords, .progress='none')
+...
+```
+
+```{r, eval=FALSE}
+# remove blank reviews
+results <- results[!(gsub("[[:space:]]", "", results$review) == ""), ]
+```
+
+Create sentiment column
+========================================================
+```{r, eval=FALSE}
+# formula: if #positive words > #negative words, then 'positive'
+# equal values = 'neutral'
+for(i in 1:length(results$review)) {
+  if (results$positive[i] > results$negative[i]) {
+    results$predicted[i] <- "positive"
+  } else if (results$positive[i] < results$negative[i]) {
+    results$predicted[i] <- "negative"
+  } else {
+    results$predicted[i] <- "neutral"
+  }
+}
+```
+This column will hold the predicted values.
+
+Grab numeric ratings from website
+========================================================
+```{r, eval=FALSE}
+# get prof 'helpfulness' rating
+helpfulness <- uwaterloo %>%
+  html_nodes(".break:nth-child(1) .score")%>%
+  html_text() %>%
+  as.numeric()
+# get prof 'clarity' rating
+clarity <- uwaterloo %>%
+  html_nodes(".break:nth-child(2) .score")%>%
+  html_text() %>%
+  as.numeric()
+```
+
+```{r, eval=FALSE}
+# put helpfulness & clarity rating into dataframe
+ratings <- data.frame(helpfulness, clarity)
+# find overall rating by averaging the 2 ratings
+ratings$overall <- (helpfulness + clarity)/2
+```
+
+========================================================
+```{r, eval=FALSE}
+# set sentiment ranges based on overall ratings (same manner as RateYourProf)
+ratings$sentiment[ratings$overall < 3] <- 'negative'
+ratings$sentiment[ratings$overall >= 3 & ratings$overall <= 3.5] <- 'neutral'
+ratings$sentiment[ratings$overall > 3.5] <- 'positive'
+```
+This column will hold the numeric ratings.
+
+```{r, eval=FALSE}
+# import csv file of objective ratings based on reviews alone
+objRatings <- read.csv("sentimentset_dbm.csv", header = FALSE)
+```
+This column will hold the coded ratings.
+
+Results
+========================================================
+```{r, eval=FALSE}
+# compare predicted vs. numeric ratings
+recall_accuracy(ratings$sentiment, results$predicted)
+# compare predicted vs. coded ratings
+recall_accuracy(objRatings$sentiment, results$predicted)
+# compare numeric vs. coded ratings
+recall_accuracy(ratings$sentiment, objRatings$sentiment)
+```
+<center>
+Accuracy<p>
+<b>Predicted vs. numeric:</b> 0.7647059<br>
+<b>Predicted vs. coded:</b>    0.8823529<br>
+<b>Numeric vs. coded:</b>     0.7058824<br>
+[Note: this sentiment analysis is for Prof #1]
