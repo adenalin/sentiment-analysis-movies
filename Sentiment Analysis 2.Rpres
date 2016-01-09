@@ -1,0 +1,162 @@
+Sentiment Analysis: Part 2
+========================================================
+author: Adena Lin
+date: December 18, 2015
+
+Updates
+========================================================
+Left off with this formula
+```{r, eval=FALSE}
+# FORMULA: more positive than negative words = positive sentiment
+functionResults$predicted <- ifelse(as.numeric(functionResults$positive) > as.numeric(functionResults$negative), 'positive', 'negative')
+```
+Next, use a classification model in place of the formula.
+
+First, positive and negative word lists were updated with common movie review terminology from <a href ="http://member.tokoha-u.ac.jp/~dixonfdm/Writing%20Topics%20htm/Movie%20Review%20Folder/movie_descrip_vocab.htm">this site</a>.
+
+
+Updated lexicons
+========================================================
+```{r, eval=FALSE}
+positiveWords[2007:2015] <- c('comical',
+                   'uproarious',
+                   'original',
+                   'absorbing',
+                   'riveting',
+                   'surprising',
+                   'dazzling',
+                   'thought-provoking', 
+                   'unpretentious')
+negativeWords[4784:4790] <- c('second-rate',
+                   'third-rate',
+                   'juvenile', 
+                   'ordinary',
+                   'predictable',
+                   'uninteresting',
+                   'outdated')
+```
+
+Added features
+========================================================
+**1)** Counting punctuation (.?!)
+```{r, eval=FALSE}
+# count number of periods in each review
+positivePeriods <- lapply(gregexpr("[.]", positiveReviews), function(x) ifelse(x[[1]] > 0, length(x), as.integer(0)))
+# count number of exclamation marks
+positiveExclamations <- lapply(gregexpr("[!]", positiveReviews), function(x) ifelse(x[[1]] > 0, length(x), as.integer(0)))
+# count number of question marks
+positiveQuestions <- lapply(gregexpr("[?]", positiveReviews), function(x) ifelse(x[[1]] > 0, length(x), as.integer(0)))
+```
+
+========================================================
+**2)** Proportion of counted words to total number of words in lexicon for each sentiment
+```{r, eval=FALSE}
+# Create two new columns for proportion of +/- words (ie. + words counted / total # of + words)
+functionResults$prop_pos <- functionResults$positive/(length(positiveWords))
+functionResults$prop_neg <- functionResults$negative/(length(negativeWords))
+```
+
+**3)** Difference between number of positive vs. negative words
+```{r, eval=FALSE}
+# add feature: difference between positive and negative words
+functionResults$difference <- functionResults$positive - functionResults$negativse
+```
+
+========================================================
+**4)** Proportion of positive to negative words in each review
+```{r, eval=FALSE}
+# add feature: proportion of positive to negative words
+functionResults$prop_pos_neg <- ifelse(functionResults$negative == 0, 100, functionResults$positive / functionResults$negative)
+```
+**5)** Proportion of positive or negative words to total number of words
+```{r, eval=FALSE}
+# add feature: proportion of positive or negative words to total words
+functionResults$pos_totalwords <- functionResults$positive/functionResults$num_words
+functionResults$neg_totalwords <- functionResults$negative/functionResults$num_words                       
+```
+
+========================================================
+**6)** Total number of words in each review
+```{r, eval=FALSE}
+wordcount <- function(str) {
+  sapply(gregexpr("\\b\\W+\\b", str, perl=TRUE), function(x) sum(x>0) ) + 1 
+}
+functionResults$num_words <- wordcount(functionResults$sentence)
+```
+
+Summary of predictors
+========================================================
+- Number of positive & negative words
+- Count of certain punctuation
+- Proportion of counted words to total lexicon words for each sentiment
+- Difference between number of positive vs. negative words
+- Proportion of positive to negative words in each review
+- Proportion of positive or negative words to total number of words
+- Total number of words in each review
+
+<b>12 predictors in total</b>
+
+Models
+========================================================
+Decision tree
+```{r, eval=FALSE}
+library(rpart)
+rfAnalysis <- rpart(sentiment ~ ., data = sentimentMatrix)
+trainResults <- predict(rfAnalysis, sentimentMatrix)
+trainResults <- data.frame(trainResults)
+trainResults$sentiment <- ifelse(trainResults$positive > trainResults$negative, 'positive', 'negative')
+```
+
+Results
+========================================================
+```{r, eval=FALSE}
+testResults <- predict(rfAnalysis, testMatrix)
+testResults <- data.frame(testResults)
+testResults$sentiment <- ifelse(testResults$positive > testResults$negative, 'positive', 'negative')
+recall_accuracy(testMatrix$sentiment, testResults$sentiment)
+```
+<center>Test Results<br>
+  <b>68.25% accuracy with random forests
+  <br>72.75% accuracy with decision tree</b>
+  
+  <p>
+  Tested against training data<br>
+  <b>100% accuracy with random forests
+  <br>70.55% accuracy with decision tree</b>
+
+Conclusions
+========================================================
+Although decision tree had worse accuracy as compared to random forests when predictions were tested against original training data, it fared better when tested against test data, suggesting that the RF were overfitting.
+
+Next, we will use automatic feature selection instead of using all predictors to build a model.
+
+Automatic feature selection
+========================================================
+```{r, eval=FALSE}
+ctrl <- rfeControl(method = "repeatedcv",
+                   repeats = 5,
+                   verbose = TRUE,
+                   functions = rfFuncs)
+featureSelection <- rfe(x = sentimentMatrix[,2:13],
+                  y = sentimentMatrix$sentiment,
+                  sizes = c(1:13),
+                  metric = "Accuracy",
+                  rfeControl = ctrl)
+# automated feature chose 3 variables: prop_pos_neg, difference, neg_totalwords, prop_pos, positive
+# build new RF model using these 5 features
+rfFeature <- rpart(sentiment ~ prop_pos_neg + difference + neg_totalwords + prop_pos + positive, data = sentimentMatrix)
+```
+
+Conclusions
+========================================================
+```{r, eval=FALSE}
+# TEST model
+testResults2 <- predict(rfFeature, testData)
+# results return a dataframe of percentages for chance of 'positive' or 'negative' sentiment
+# turn percentages into factors for comparison
+testResults2 <- data.frame(testResults2)
+testResults2$sentiment <- ifelse(testResults2$positive > testResults2$negative, 'positive', 'negative')
+recall_accuracy(testData$sentiment, testResults2$sentiment)
+```
+Results<br>
+<b>72.75% accuracy</b> using only 5 features (same accuracy if we use all features)
